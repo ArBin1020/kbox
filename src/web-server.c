@@ -408,6 +408,34 @@ static int handle_request(struct kbox_web_ctx *ctx,
         return (rc == 0) ? 1 : 0; /* keep alive on success */
     }
 
+    /* GET /api/history -- historical snapshots from ring buffer */
+    if (strcmp(req->path, "/api/history") == 0) {
+        if (strcmp(req->method, "GET") != 0)
+            return send_405(fd), 0;
+
+        pthread_mutex_lock(&ctx->lock);
+        int count = ctx->snap_ring_count;
+        int head = ctx->snap_ring_head;
+
+        /* Build JSON array of snapshots (oldest first) */
+        int pos = 0;
+        pos += snprintf(buf + pos, sizeof(buf) - (size_t) pos,
+                        "{\"count\":%d,\"snapshots\":[", count);
+
+        for (int i = 0; i < count && pos < (int) sizeof(buf) - 2048; i++) {
+            int idx = (head - count + i + SNAP_RING_SIZE) % SNAP_RING_SIZE;
+            if (i > 0)
+                buf[pos++] = ',';
+            pos += kbox_snapshot_to_json(&ctx->snap_ring[idx], buf + pos,
+                                         (int) sizeof(buf) - pos);
+        }
+        pos += snprintf(buf + pos, sizeof(buf) - (size_t) pos, "]}");
+        pthread_mutex_unlock(&ctx->lock);
+
+        send_json(fd, buf, pos);
+        return 0;
+    }
+
     /* GET /stats */
     if (strcmp(req->path, "/stats") == 0) {
         if (strcmp(req->method, "GET") != 0)
