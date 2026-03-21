@@ -98,11 +98,17 @@ int kbox_apply_recommended_mounts(const struct kbox_sysnrs *s,
         if (do_mkdir_mount(s, "/sys", "sysfs", "sysfs") < 0)
             return -1;
 
+        /* devtmpfs and devpts require CONFIG_DEVTMPFS / CONFIG_DEVPTS_FS
+         * in the LKL kernel. Warn on failure instead of aborting; the guest
+         * can operate without them.
+         */
         if (do_mkdir_mount(s, "/dev", "devtmpfs", "devtmpfs") < 0)
-            return -1;
+            fprintf(stderr,
+                    "warning: devtmpfs unavailable (CONFIG_DEVTMPFS?)\n");
 
         if (do_mkdir_mount(s, "/dev/pts", "devpts", "devpts") < 0)
-            return -1;
+            fprintf(stderr,
+                    "warning: devpts unavailable (CONFIG_DEVPTS_FS?)\n");
     }
 
     /* tmpfs on /tmp is always useful */
