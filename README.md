@@ -111,6 +111,12 @@ On aarch64, four `O_*` flags differ between the host and asm-generic: `O_DIRECTO
 
 ## Building
 
+First, bootstrap with a default config.
+
+```bash
+make defconfig
+```
+
 Linux only (host kernel 5.0+ for seccomp-unotify, 5.9+ for FSGSBASE trap optimization). Requires GCC, GNU Make, and a pre-built `liblkl.a`. No `libseccomp` dependency; the BPF filter is compiled natively.
 
 ```bash
