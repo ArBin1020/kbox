@@ -1,14 +1,34 @@
-# External dependency fetching (LKL, minislirp)
+# External dependency fetching / building (LKL, minislirp)
+
+# FORCE_LKL_BUILD=1  – clone lkl/linux and build liblkl.a from source.
+#                      The source tree is kept in build/lkl-src so
+#                      subsequent builds reuse it (pass LKL_DIR= to override).
+# (default)          – download prebuilt tarball from the lkl-nightly release.
+
+ifeq ($(FORCE_LKL_BUILD),1)
+
+$(LKL_LIB):
+	@echo "  BUILD   lkl (from source)"
+	$(Q)./scripts/build-lkl.sh $(ARCH)
+
+else
 
 # Auto-fetch LKL if missing
 $(LKL_LIB):
 	@echo "  FETCH   lkl"
 	$(Q)./scripts/fetch-lkl.sh $(ARCH)
 
+endif
+
 .PHONY: fetch-lkl
 fetch-lkl:
 	@echo "  FETCH   lkl"
 	$(Q)./scripts/fetch-lkl.sh $(ARCH)
+
+.PHONY: build-lkl
+build-lkl:
+	@echo "  BUILD   lkl (from source)"
+	$(Q)./scripts/build-lkl.sh $(ARCH)
 
 # Auto-fetch minislirp if missing (shallow clone, no submodule).
 # $(wildcard) evaluates at parse time, so if minislirp has not been fetched yet
