@@ -42,7 +42,27 @@
   </div>
 </header>
 
-<!-- Dashboard panels -->
+<!-- Tab bar -->
+<nav class="tab-bar">
+  <button class="tab active" data-tab="observatory">Observatory</button>
+  <button class="tab" data-tab="kernel-house">Kernel House</button>
+  <button class="tab" data-tab="events">Events</button>
+</nav>
+
+<!-- Kernel House scene -->
+<div id="tab-kernel-house" class="tab-content">
+  <div class="kh-container">
+    <canvas id="kh-canvas"></canvas>
+    <div id="kh-overlay" class="kh-overlay"></div>
+    <div class="kh-controls">
+      <button id="btn-demo" title="Run demo animation">Demo</button>
+      <button id="btn-screenshot" title="Save screenshot">Screenshot</button>
+    </div>
+  </div>
+</div>
+
+<!-- Observatory (existing dashboard) -->
+<div id="tab-observatory" class="tab-content visible">
 <main class="grid">
   <!-- Syscall activity (wide) -->
   <section class="panel wide" id="p-syscall">
@@ -79,7 +99,12 @@
     <div class="placeholder">Data source pending (Phase 2+)</div>
   </section>
 
-  <!-- Event feed (wide) -->
+</main>
+</div><!-- /tab-observatory -->
+
+<!-- Events tab (standalone) -->
+<div id="tab-events" class="tab-content">
+<main class="grid">
   <section class="panel wide" id="p-events">
     <h2>Event Feed
       <span class="event-controls">
@@ -91,6 +116,7 @@
     <div id="event-feed" class="feed"></div>
   </section>
 </main>
+</div><!-- /tab-events -->
 
 <script src="/js/chart.umd.min.js"></script>
 <script src="/js/state.js"></script>
@@ -99,6 +125,13 @@
 <script src="/js/events.js"></script>
 <script src="/js/polling.js"></script>
 <script src="/js/controls.js"></script>
+<script src="/js/scene.js"></script>
+<script src="/js/penguin.js"></script>
+<script src="/js/bubble.js"></script>
+<script src="/js/intent.js"></script>
+<script src="/js/telemetry.js"></script>
+<script src="/js/education.js"></script>
+<script src="/js/house.js"></script>
 <script src="/js/main.js"></script>
 </body>
 </html>

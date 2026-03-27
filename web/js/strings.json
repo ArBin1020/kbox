@@ -1,0 +1,87 @@
+{
+  "tabs": {
+    "observatory": "Observatory",
+    "kernelHouse": "Kernel House",
+    "events": "Events"
+  },
+  "rooms": {
+    "attic": {
+      "name": "User Space",
+      "desc": "Guest processes live here. Every syscall begins as a request from user space, intercepted by kbox's seccomp-unotify filter before reaching the kernel.",
+      "source": "src/seccomp-bpf.c"
+    },
+    "gate": {
+      "name": "Syscall Gate",
+      "desc": "The seccomp dispatch loop. Each intercepted syscall arrives here as a notification. The dispatcher decides: forward to LKL, let the host kernel handle it (CONTINUE), or reject it (ENOSYS).",
+      "source": "src/seccomp-dispatch.c"
+    },
+    "vfs": {
+      "name": "Virtual Filesystem",
+      "desc": "File operations routed through LKL's VFS layer. open, read, write, stat, and directory operations are emulated by the in-process Linux kernel against the guest ext4 image.",
+      "source": "src/seccomp-dispatch.c (forward_openat, forward_read, forward_write)"
+    },
+    "process": {
+      "name": "Process Management",
+      "desc": "Scheduler and process lifecycle. Context switches, clone, execve, and exit are tracked here. Most scheduling syscalls (sched_yield, getpid) use host CONTINUE; clone and execve are emulated by the supervisor.",
+      "source": "src/seccomp-dispatch.c (forward_clone3, forward_execve)"
+    },
+    "memory": {
+      "name": "Memory Management",
+      "desc": "Page allocation, mmap, and brk. LKL manages its own page cache and memory accounting. Shadow FDs enable mmap of guest files via host memfd.",
+      "source": "src/shadow-fd.c, src/seccomp-dispatch.c (forward_mmap)"
+    },
+    "network": {
+      "name": "Network Stack",
+      "desc": "Socket operations routed through LKL's TCP/IP stack. SLIRP provides user-mode networking without root privileges.",
+      "source": "src/net-slirp.c"
+    },
+    "basement": {
+      "name": "Block I/O",
+      "desc": "Storage subsystem. LKL's block layer manages the guest ext4 filesystem image. Block counters not yet wired to telemetry.",
+      "source": "LKL internal (not yet instrumented)"
+    },
+    "fdvault": {
+      "name": "FD Table",
+      "desc": "Virtual file descriptor management. kbox maintains a split FD table: high range (>=32768) for normal allocation, low range (0-1023) for dup2/dup3. Tracks LKL FD to host FD mappings.",
+      "source": "src/fd-table.c"
+    }
+  },
+  "characters": {
+    "dispatcher": "Dispatcher Tux",
+    "file": "File Tux",
+    "sched": "Sched Tux",
+    "memory": "Memory Tux",
+    "net": "Net Tux",
+    "storage": "Storage Tux",
+    "guest": "Guest Process"
+  },
+  "disposition": {
+    "continue": "CONTINUE (host kernel)",
+    "return": "LKL emulated",
+    "enosys": "ENOSYS (rejected)"
+  },
+  "legend": {
+    "continue": "Host kernel handles directly",
+    "return": "Emulated via LKL",
+    "enosys": "Rejected (unimplemented)",
+    "error": "Error"
+  },
+  "narrator": {
+    "welcome": "Welcome to the kbox Kernel House. Each room represents a Linux kernel subsystem. Watch the penguins as they process real syscalls from the guest.",
+    "syscallFlow": "{name} dispatched to {room}",
+    "errorSpike": "Error spike detected in {room}",
+    "firstFamily": "First {family} syscall observed this session"
+  },
+  "demo": {
+    "button": "Demo",
+    "tooltip": "Run a canned animation sequence (no live data needed)"
+  },
+  "ui": {
+    "crowdBadge": "+{count}",
+    "narrator": "Narrator",
+    "close": "Close",
+    "screenshot": "Screenshot",
+    "toggleNarrator": "Toggle narrator mode",
+    "latency": "{value}"
+  }
+}

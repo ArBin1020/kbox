@@ -19,7 +19,7 @@ fi
 FILES=()
 while IFS= read -r -d '' f; do
     FILES+=("$f")
-done < <(find "$WEB_DIR" -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.svg' \) -print0 | sort -z)
+done < <(find "$WEB_DIR" -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.svg' -o -name '*.png' -o -name '*.json' \) -print0 | sort -z)
 
 if [ ${#FILES[@]} -eq 0 ]; then
     echo "error: no web assets found in web/" >&2
