@@ -314,6 +314,10 @@ static const char *content_type_for(const char *path)
         return "application/javascript";
     if (strcmp(dot, ".svg") == 0)
         return "image/svg+xml";
+    if (strcmp(dot, ".png") == 0)
+        return "image/png";
+    if (strcmp(dot, ".json") == 0)
+        return "application/json";
     return "application/octet-stream";
 }
 
