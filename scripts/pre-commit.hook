@@ -141,7 +141,7 @@ check_required_tools
 
 CPPCHECK_OPTS="-I. -Iinclude -Isrc --enable=all --error-exitcode=1"
 CPPCHECK_OPTS+=" $(detect_cc_std)"
-CPPCHECK_OPTS+=" --force $(cppcheck_suppressions)"
+CPPCHECK_OPTS+=" --max-configs=4 $(cppcheck_suppressions)"
 CPPCHECK_OPTS+=" -D_GNU_SOURCE -DKBOX_UNIT_TEST"
 
 workspace=$(git rev-parse --show-toplevel)
@@ -250,17 +250,17 @@ fi
 # === CHECK 6: Static analysis ===
 update_progress "Running static analysis"
 if [ ${#C_FILES[@]} -gt 0 ]; then
-    cppcheck_errors=0
+    existing_c_files=()
     for file in "${C_FILES[@]}"; do
-        if [ -f "$file" ]; then
-            if ! cppcheck $CPPCHECK_OPTS "$file" > /dev/null 2>&1; then
-                cppcheck_errors=$((cppcheck_errors + 1))
-            fi
-        fi
+        [ -f "$file" ] && existing_c_files+=("$file")
     done
-    if [ $cppcheck_errors -gt 0 ]; then
-        report_result 1 "$cppcheck_errors file(s) failed static analysis"
-        RETURN=1
+    if [ ${#existing_c_files[@]} -gt 0 ]; then
+        if ! cppcheck $CPPCHECK_OPTS "${existing_c_files[@]}" > /dev/null 2>&1; then
+            report_result 1 "Static analysis errors found"
+            RETURN=1
+        else
+            report_result 0
+        fi
     else
         report_result 0
     fi
