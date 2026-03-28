@@ -97,77 +97,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison bc libelf-dev
 
-      - name: Shallow-fetch LKL at pinned commit
-        run: |
-          git init lkl && cd lkl
-          git remote add origin "https://github.com/${{ env.LKL_UPSTREAM }}.git"
-          git fetch --depth=1 origin ${{ needs.check-upstream.outputs.lkl_commit }}
-          git checkout FETCH_HEAD
-
-      - name: Configure LKL
-        working-directory: lkl
-        run: |
-          make ARCH=lkl defconfig
-          ./scripts/config --enable CONFIG_DEVTMPFS
-          ./scripts/config --enable CONFIG_DEVTMPFS_MOUNT
-          ./scripts/config --enable CONFIG_DEVPTS_FS
-          ./scripts/config --enable CONFIG_DEBUG_INFO
-          ./scripts/config --set-val CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT y
-          ./scripts/config --enable CONFIG_GDB_SCRIPTS
-          ./scripts/config --enable CONFIG_SCHED_DEBUG
-          ./scripts/config --enable CONFIG_PROC_SYSCTL
-          ./scripts/config --enable CONFIG_PRINTK
-          ./scripts/config --enable CONFIG_TRACEPOINTS
-          ./scripts/config --enable CONFIG_FTRACE
-          ./scripts/config --enable CONFIG_DEBUG_FS
-          ./scripts/config --disable CONFIG_MODULES
-          ./scripts/config --disable CONFIG_SOUND
-          ./scripts/config --disable CONFIG_USB_SUPPORT
-          ./scripts/config --disable CONFIG_INPUT
-          ./scripts/config --disable CONFIG_NFS_FS
-          ./scripts/config --disable CONFIG_CIFS
-          make ARCH=lkl olddefconfig
-
-      - name: Build LKL kernel
-        working-directory: lkl
-        run: make ARCH=lkl -j$(nproc)
-
-      - name: Build liblkl.a
-        working-directory: lkl
-        run: make -C tools/lkl -j$(nproc)
-
-      - name: Verify symbols
-        working-directory: lkl
-        run: |
-          test -f tools/lkl/liblkl.a || { echo "liblkl.a not found"; exit 1; }
-          for sym in lkl_init lkl_start_kernel lkl_cleanup lkl_syscall \
-                     lkl_strerror lkl_disk_add lkl_mount_dev \
-                     lkl_host_ops lkl_dev_blk_ops; do
-            if ! nm tools/lkl/liblkl.a 2>/dev/null | awk -v s="$sym" \
-                '$3 == s && $2 ~ /^[TtDdBbRr]$/ {found=1} END {exit !found}'; then
-              echo "MISSING symbol: ${sym}"; exit 1
-            fi
-          done
+      - name: Build LKL from source
+        env:
+          LKL_REF: ${{ needs.check-upstream.outputs.lkl_commit }}
+        run: make build-lkl
 
       - name: Package
-        working-directory: lkl
         run: |
-          mkdir -p pkg
-          cp tools/lkl/liblkl.a pkg/
-          cp tools/lkl/include/lkl.h pkg/ 2>/dev/null || true
-          cp tools/lkl/include/lkl/autoconf.h pkg/ 2>/dev/null || true
-          cp scripts/gdb/vmlinux-gdb.py pkg/ 2>/dev/null || true
-          echo "commit=$(git rev-parse HEAD)" > pkg/BUILD_INFO
-          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> pkg/BUILD_INFO
-          echo "arch=${{ matrix.arch }}" >> pkg/BUILD_INFO
-          cd pkg && sha256sum ./* > sha256sums.txt
-          cd .. && tar czf liblkl-${{ matrix.arch }}.tar.gz -C pkg .
+          tar czf liblkl-${{ matrix.arch }}.tar.gz lkl-${{ matrix.arch }}/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: lkl-${{ matrix.arch }}
-          path: lkl/liblkl-${{ matrix.arch }}.tar.gz
+          path: liblkl-${{ matrix.arch }}.tar.gz
           retention-days: 3
 
   # ---- Publish: replace lkl-nightly release with latest artifacts ----
