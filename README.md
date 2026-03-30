@@ -1,6 +1,6 @@
 # kbox
 
-kbox boots a real Linux kernel as an in-process library ([LKL](https://github.com/lkl/linux)) and routes intercepted syscalls to it. Three interception tiers are available: seccomp-unotify (most compatible), SIGSYS trap (lower latency), and binary rewriting (near-native for process-info syscalls). The default `auto` mode selects the fastest tier that works for a given workload. kbox provides a rootless chroot/proot alternative with kernel-level syscall accuracy.
+kbox boots a real Linux kernel as an in-process library ([LKL](https://github.com/lkl/linux)) and routes intercepted syscalls to it. Three interception tiers are available: seccomp-unotify (most compatible), SIGSYS trap (lower latency), and binary rewriting (near-native for process-info syscalls). The default `auto` mode selects the fastest tier that works for a given workload. kbox provides a rootless chroot/proot alternative with kernel-level syscall accuracy, and serves as a high-observability execution substrate for AI agent tool calls.
 
 ## Why kbox
 
@@ -77,7 +77,7 @@ Every intercepted syscall is dispatched to one of three dispositions:
 
 All three tiers share the same dispatch engine (`kbox_dispatch_request`). The `kbox_syscall_request` abstraction decouples the dispatch logic from the notification transport: seccomp notifications, SIGSYS signal info, and rewrite trampoline calls all produce the same request struct.
 
-Unknown syscalls receive `ENOSYS`. ~50 dangerous syscalls (mount, reboot, init_module, bpf, ptrace, etc.) are rejected with `EPERM` directly in the BPF filter before reaching the supervisor.
+Unknown syscalls receive `ENOSYS`. Over 50 dangerous syscalls (mount, reboot, init_module, bpf, ptrace, etc.) are rejected with `EPERM` directly in the BPF filter before reaching the supervisor.
 
 ### Key subsystems
 
@@ -108,6 +108,52 @@ LKL is built as `ARCH=lkl`, which uses asm-generic headers. On x86_64, `struct s
 seccomp `args[]` zero-extends 32-bit values: fd=-1 becomes `0x00000000FFFFFFFF`, not `0xFFFFFFFFFFFFFFFF`. All handlers extracting signed arguments (AT_FDCWD, MAP_ANONYMOUS fd) truncate to 32 bits before sign-extending: `(long)(int)(uint32_t)args[N]`.
 
 On aarch64, four `O_*` flags differ between the host and asm-generic: `O_DIRECTORY`, `O_NOFOLLOW`, `O_DIRECT`, `O_LARGEFILE`. The dispatch layer translates these bidirectionally.
+
+## Security model
+
+kbox reduces the host kernel attack surface via seccomp BPF filtering and routes filesystem and networking syscalls through LKL rather than the host (performance-critical operations like mmap, futex, brk, and epoll still execute on the host kernel). Over 50 dangerous syscalls (mount, reboot, init_module, bpf, ptrace, etc.) are rejected with `EPERM` in the BPF filter before reaching the supervisor. Path translation blocks escape attempts on LKL-routed filesystem paths (`..` traversal, `/proc/self/root`, symlink tricks); host-routed pseudo-filesystems (`/proc`, `/sys`, `/dev`) remain governed by the host kernel and BPF policy. W^X enforcement prevents simultaneous `PROT_WRITE|PROT_EXEC` in guest memory.
+
+However, seccomp filtering is a [building block for sandboxes, not a sandbox itself](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html). kbox runs LKL and the supervisor in the same address space as the guest (especially in trap/rewrite mode). This design delivers low overhead and deep observability, but it means a memory-safety bug in the dispatch path or LKL could be exploitable by a crafted guest binary.
+
+Three deployment tiers, in ascending isolation strength:
+
+| Tier | Threat model | Setup |
+|------|-------------|-------|
+| kbox alone | Trusted/semi-trusted code: build tools, test suites, static analysis, research, teaching | `./kbox image -S rootfs.ext4 -- /bin/sh -i` |
+| kbox + namespace/LSM | Agent tool execution with defense-in-depth: CI runners, automated code review | Wrap with `bwrap`, Landlock, or cgroup limits (adds containment and resource controls, not hardware isolation) |
+| outer sandbox + kbox | Untrusted code, multi-tenant: hostile payloads, student submissions, public-facing agent APIs | Run kbox inside a microVM (Firecracker, Cloud Hypervisor) for hardware-enforced isolation, or inside gVisor for userspace-kernel isolation |
+
+kbox is designed as an inner-layer sandbox. For hostile code containment, pair it with an outer isolation boundary. Only microVMs provide hardware-enforced address space separation; gVisor and namespace jails reduce the attack surface without hardware isolation.
+
+## AI agent integration
+
+AI agents that execute tool calls (compile, test, run scripts, query filesystems) need three things from their execution layer: faithful Linux behavior so tools work correctly, visibility into what happened when a tool call fails, and low per-invocation overhead so the agent loop stays fast. Typical container execution surfaces only process-level outcomes (exit code, stderr) unless you add external host-side instrumentation (cgroups, eBPF, perf); even then, host-side counters (cgroup memory.stat, cpu.stat) show resource accounting and may include slab/workingset counters, but not the guest kernel's own procfs view or full allocator internals like buddy free lists and per-cache slab details. strace shows syscall arguments from the outside but cannot see kernel-internal state like memory pressure or load average trends. kbox occupies a different point in the design space: the kernel runs in-process, so every internal data structure is directly readable by the supervisor while the guest executes.
+
+- **Kernel-internal observability**: because LKL runs in the same address space, kbox reads `/proc/stat`, `/proc/meminfo`, `/proc/vmstat`, and `/proc/loadavg` from LKL's own procfs -- not the host's. The current telemetry API exposes context switch rates, memory breakdown (free, buffers, cached, slab), page fault counters, load averages, and per-type softirq distribution for the guest workload specifically. When an agent tool call hangs, the orchestrator can query `/api/snapshot` to help differentiate CPU-heavy behavior from memory pressure. Because LKL is in-process, deeper kernel internals (runqueues, buddy free lists, per-cache slab details) are architecturally readable via GDB or future telemetry extensions, but are not yet exported by the web API. Few rootless mechanisms expose a real Linux kernel's own procfs this directly from an unprivileged process; gVisor has its own internal metrics, but kbox reads native kernel procfs without requiring a reimplemented kernel.
+- **Per-syscall audit trail**: every intercepted syscall passes through `kbox_dispatch_request` with a `clock_gettime` measurement before and after dispatch (~25ns overhead). The SSE event stream (`/api/events`) and JSON trace mode (`--trace-format json`) produce structured records of every dispatch decision: which syscall, which disposition (LKL forward, host CONTINUE, or emulated), and how long it took. The stream covers syscalls that reach the dispatch engine; BPF-denied syscalls (mount, ptrace, bpf, etc.) return EPERM before the supervisor sees them. Agent frameworks can consume this to detect runaway syscall loops, identify unsupported syscalls (ENOSYS counters via `/api/enosys`), and attribute latency to specific tool-call phases.
+- **Real Linux semantics**: agents get Linux kernel semantics for VFS, ext4, and procfs via LKL -- not a userspace syscall reimplementation. Compilers, package managers, and test harnesses see real kernel behavior. This eliminates a class of agent failures where the tool works on a developer machine but breaks in the sandbox because the sandbox's syscall emulation is incomplete.
+- **Low per-call overhead**: in-process LKL boot, no VM or container daemon. The `auto` mode selects the fastest interception tier per command: trap/rewrite for direct binaries (~3us stat on aarch64, ~1.4x faster lseek+read on x86_64 vs seccomp), seccomp for shell pipelines. Short-lived tool calls complete without amortizing multi-second startup costs that dominate agent latency budgets.
+- **Programmable dispatch point**: the unified dispatch engine is the natural insertion point for future per-agent policy (path allowlists, socket rules, syscall quotas). All three interception tiers share this path. The underlying request abstraction (`kbox_syscall_request`) already decouples policy decisions from the notification transport, but no user-facing policy hook exists yet.
+- **Deterministic initial rootfs**: the ext4 disk image provides a known starting state. For reproducible agent evaluation, mount read-only or clone the image per run; the default mount is read-write. Combined with `--syscall-mode=seccomp` (strongest isolation) and fixed kernel cmdline, this gives repeatable initial conditions for benchmark comparisons across agent runs.
+
+### Recommended agent deployment
+
+```
+host -> [outer boundary] -> kbox -> agent tool process
+```
+
+For trusted tool execution (compilation, linting, unit tests), kbox alone is sufficient. For untrusted or adversarial inputs, wrap kbox in a namespace jail (`bwrap --unshare-all`) or a microVM. The outer boundary provides the security guarantee; kbox provides Linux semantics and observability inside it.
+
+### Observability for agent frameworks
+
+The observability endpoints (`/api/snapshot`, `/api/events`, `/api/enosys`) expose telemetry that agent orchestrators can consume directly:
+
+| What to monitor | Endpoint | Why it matters |
+|----------------|----------|---------------|
+| Syscall rate by family | `/api/snapshot` | Detect runaway loops (e.g., agent stuck in open/close cycle) |
+| ENOSYS hit counts | `/api/enosys` | Identify unsupported syscalls the guest binary needs |
+| Kernel memory pressure | `/api/snapshot` | Catch OOM before the guest is killed |
+| Per-call latency | `/api/events` (SSE) | Profile tool-call overhead for agent cost budgeting |
 
 ## Building
 
