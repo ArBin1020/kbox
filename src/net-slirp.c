@@ -25,6 +25,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <net/if.h>
+#include <net/route.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -1037,18 +1039,9 @@ int kbox_net_configure(const struct kbox_sysnrs *sysnrs)
         return -1;
     }
 
-    struct {
-        char ifr_name[16];
-        union {
-            short ifr_flags;
-            struct {
-                unsigned short sin_family;
-                unsigned short sin_port;
-                unsigned int sin_addr;
-                char sin_zero[8];
-            } ifr_addr;
-        };
-    } ifr;
+    _Static_assert(sizeof(struct ifreq) == 40,
+                   "struct ifreq must be 40 bytes (64-bit Linux ABI)");
+    struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
     snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "eth%d", lkl_netdev_id);
 
@@ -1064,8 +1057,9 @@ int kbox_net_configure(const struct kbox_sysnrs *sysnrs)
 
     /* 2. Set IP address via SIOCSIFADDR. */
     memset(&ifr.ifr_addr, 0, sizeof(ifr.ifr_addr));
-    ifr.ifr_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, GUEST_IP_STR, &ifr.ifr_addr.sin_addr);
+    struct sockaddr_in *addr = (struct sockaddr_in *) &ifr.ifr_addr;
+    addr->sin_family = AF_INET;
+    inet_pton(AF_INET, GUEST_IP_STR, &addr->sin_addr);
     ret =
         lkl_syscall6(LKL_NR_IOCTL, sock, LKL_SIOCSIFADDR, (long) &ifr, 0, 0, 0);
     if (ret < 0) {
@@ -1076,8 +1070,8 @@ int kbox_net_configure(const struct kbox_sysnrs *sysnrs)
 
     /* 3. Set netmask via SIOCSIFNETMASK. */
     memset(&ifr.ifr_addr, 0, sizeof(ifr.ifr_addr));
-    ifr.ifr_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, "255.255.255.0", &ifr.ifr_addr.sin_addr);
+    addr->sin_family = AF_INET;
+    inet_pton(AF_INET, "255.255.255.0", &addr->sin_addr);
     ret = lkl_syscall6(LKL_NR_IOCTL, sock, LKL_SIOCSIFNETMASK, (long) &ifr, 0,
                        0, 0);
     if (ret < 0) {
@@ -1093,28 +1087,9 @@ int kbox_net_configure(const struct kbox_sysnrs *sysnrs)
     __atomic_store_n(&net_ready, 1, __ATOMIC_RELEASE);
 
     /* 4. Set default gateway via SIOCADDRT. */
-    struct {
-        unsigned long rt_pad1;
-        struct {
-            unsigned short sa_family;
-            char sa_data[14];
-        } rt_dst;
-        struct {
-            unsigned short sa_family;
-            char sa_data[14];
-        } rt_gateway;
-        struct {
-            unsigned short sa_family;
-            char sa_data[14];
-        } rt_genmask;
-        unsigned short rt_flags;
-        short rt_pad2;
-        unsigned long rt_pad3;
-        void *rt_pad4;
-        short rt_metric;
-        char *rt_dev;
-        unsigned long rt_mtu;
-    } rt;
+    _Static_assert(sizeof(struct rtentry) == 120,
+                   "struct rtentry must be 40 bytes (kernel ABI)");
+    struct rtentry rt;
     memset(&rt, 0, sizeof(rt));
     rt.rt_dst.sa_family = AF_INET;
     rt.rt_genmask.sa_family = AF_INET;
