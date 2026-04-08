@@ -108,6 +108,12 @@ struct kbox_rewrite_runtime {
         trampoline_regions[KBOX_LOADER_MAX_MAPPINGS];
     size_t trampoline_region_count;
     int installed;
+    /* Set during install if the main binary contains no fork-family syscall
+     * sites. Gates promotion of cancel-style BL wrapper sites: bypassing
+     * __syscall_cancel skips pthread cancellation point checks, which is only
+     * safe when the program is single-threaded.
+     */
+    int cancel_promote_allowed;
 };
 
 enum kbox_rewrite_wrapper_family_mask {

@@ -2040,21 +2040,10 @@ static struct kbox_dispatch forward_close(
             /* Only close the LKL socket and deregister from the
              * event loop if no other fd_table entry references the
              * same lkl_fd (handles dup'd shadow sockets).
+             * kbox_fd_table_remove above already decremented the
+             * refcount, so a count of 0 means "we were the last".
              */
-            int still_ref = 0;
-            for (long i = 0; i < KBOX_FD_TABLE_MAX && !still_ref; i++) {
-                if (ctx->fd_table->entries[i].lkl_fd == lkl)
-                    still_ref = 1;
-            }
-            for (long i = 0; i < KBOX_MID_FD_MAX && !still_ref; i++) {
-                if (ctx->fd_table->mid_fds[i].lkl_fd == lkl)
-                    still_ref = 1;
-            }
-            for (long i = 0; i < KBOX_LOW_FD_MAX && !still_ref; i++) {
-                if (ctx->fd_table->low_fds[i].lkl_fd == lkl)
-                    still_ref = 1;
-            }
-            if (!still_ref) {
+            if (kbox_fd_table_lkl_ref_count(ctx->fd_table, lkl) == 0) {
                 kbox_net_deregister_socket((int) lkl);
                 lkl_close_and_invalidate(ctx, lkl);
             }

@@ -212,6 +212,52 @@ static void test_fd_table_remove_resets_host_fd(void)
     ASSERT_EQ(kbox_fd_table_find_by_host_fd(&t, 88), -1);
 }
 
+static void test_fd_table_find_by_host_fd_duplicate_holder_survives(void)
+{
+    /* After duplicate set_host_fd the reverse map enters the MULTI
+     * sentinel state and find_by_host_fd falls through to the linear
+     * scan, which returns the first matching entry in scan order.
+     * Once one holder is removed, the remaining holder is still
+     * findable (via either the fast path or the slow scan).
+     */
+    struct kbox_fd_table t;
+    long vfd1;
+    long vfd2;
+    long found;
+
+    kbox_fd_table_init(&t);
+    vfd1 = kbox_fd_table_insert(&t, 10, 0);
+    vfd2 = kbox_fd_table_insert(&t, 20, 0);
+    kbox_fd_table_set_host_fd(&t, vfd1, 77);
+    kbox_fd_table_set_host_fd(&t, vfd2, 77);
+
+    found = kbox_fd_table_find_by_host_fd(&t, 77);
+    ASSERT_TRUE(found == vfd1 || found == vfd2);
+    ASSERT_EQ(kbox_fd_table_remove(&t, vfd2), 20);
+    ASSERT_EQ(kbox_fd_table_find_by_host_fd(&t, 77), vfd1);
+}
+
+static void test_fd_table_find_by_host_fd_requires_api(void)
+{
+    /* Invariant: positive host_fd values must be installed via
+     * kbox_fd_table_set_host_fd so the O(1) reverse map stays
+     * consistent. Direct writes to entry->host_fd with positive
+     * values bypass the reverse map and are intentionally not
+     * findable; the authoritative-NONE fast path in
+     * find_by_host_fd returns -1 without scanning. Only the
+     * negative sentinel values (KBOX_FD_HOST_SAME_FD_SHADOW and
+     * KBOX_FD_LOCAL_ONLY_SHADOW) may be written directly, and
+     * only on entries whose host_fd is already negative.
+     */
+    struct kbox_fd_table t;
+    long vfd;
+
+    kbox_fd_table_init(&t);
+    vfd = kbox_fd_table_insert(&t, 10, 0);
+    t.entries[vfd - KBOX_FD_BASE].host_fd = 123;
+    ASSERT_EQ(kbox_fd_table_find_by_host_fd(&t, 123), -1);
+}
+
 void test_fd_table_init(void)
 {
     TEST_REGISTER(test_fd_table_init_zeros);
@@ -231,4 +277,6 @@ void test_fd_table_init(void)
     TEST_REGISTER(test_fd_table_find_by_host_fd);
     TEST_REGISTER(test_fd_table_find_by_host_fd_unknown);
     TEST_REGISTER(test_fd_table_remove_resets_host_fd);
+    TEST_REGISTER(test_fd_table_find_by_host_fd_duplicate_holder_survives);
+    TEST_REGISTER(test_fd_table_find_by_host_fd_requires_api);
 }
