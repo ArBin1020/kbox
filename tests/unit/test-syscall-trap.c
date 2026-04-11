@@ -259,7 +259,7 @@ static void test_sigsys_continue_executes_host_syscall(void)
     uc.uc_mcontext.gregs[REG_RAX] = HOST_NRS_X86_64.getpid;
     expected_rc = 0;
 #elif defined(__aarch64__)
-    uc.uc_mcontext.regs[8] = HOST_NRS_AARCH64.getpid;
+    uc.uc_mcontext.regs[8] = HOST_NRS_GENERIC.getpid;
     expected_rc = 0;
 #endif
 
@@ -280,7 +280,7 @@ static void test_sigsys_runtime_install_uninstall(void)
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
 
     ASSERT_EQ(kbox_syscall_trap_runtime_install(&runtime, &ctx), 0);
@@ -301,7 +301,7 @@ static void test_sigsys_runtime_install_preserves_sqpoll(void)
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
     runtime.sqpoll = 1;
 
@@ -372,7 +372,7 @@ static void test_sigsys_dispatch_helper(void)
     uc.uc_mcontext.gregs[REG_RIP] = 0x7000;
     expected_rc = 0;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
     init_sigsys(&info, 172);
     uc.uc_mcontext.pc = 0x7000;
     expected_rc = 0;
@@ -406,7 +406,7 @@ static void test_trap_runtime_capture_and_dispatch_pending(void)
     uc.uc_mcontext.gregs[REG_RIP] = 0x7200;
     expected_rc = 0;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
     init_sigsys(&info, 172);
     uc.uc_mcontext.pc = 0x7200;
     expected_rc = 0;
@@ -467,7 +467,7 @@ static void test_trap_runtime_service_thread_dispatches(void)
 
     memset(&ctx, 0, sizeof(ctx));
 #if defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #else
     ctx.host_nrs = &HOST_NRS_X86_64;
 #endif
@@ -505,7 +505,7 @@ static void test_trap_active_dispatch_uses_service_thread(void)
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
     req.nr = 88;
 
@@ -533,7 +533,7 @@ static void test_trap_active_dispatch_fails_cleanly_during_sqpoll_stop(void)
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
     req.nr = 99;
 

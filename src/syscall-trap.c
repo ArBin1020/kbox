@@ -579,6 +579,60 @@ extern int64_t kbox_syscall_trap_host_clone3_now(const void *uargs,
 extern int64_t kbox_syscall_trap_host_rt_sigprocmask_unblock(
     const uint64_t *mask,
     size_t sigset_size);
+#elif (defined(__riscv) && __riscv_xlen == 64)
+int64_t kbox_syscall_trap_host_syscall6(long nr,
+                                        uint64_t a0,
+                                        uint64_t a1,
+                                        uint64_t a2,
+                                        uint64_t a3,
+                                        uint64_t a4,
+                                        uint64_t a5)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_futex_wait_private(int *addr, int expected)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_futex_wake_private(int *addr, int count)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_exit_group_now(int status)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_execve_now(const char *pathname,
+                                          char *const argv[],
+                                          char *const envp[])
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_execveat_now(int dirfd,
+                                            const char *pathname,
+                                            char *const argv[],
+                                            char *const envp[],
+                                            int flags)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_clone_now(uint64_t a0,
+                                         uint64_t a1,
+                                         uint64_t a2,
+                                         uint64_t a3,
+                                         uint64_t a4)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_clone3_now(const void *uargs, size_t size)
+{
+    return -1;
+}
+int64_t kbox_syscall_trap_host_rt_sigprocmask_unblock(const uint64_t *mask,
+                                                      size_t sigset_size)
+{
+    return -1;
+}
 #endif
 
 static int direct_trap_execute(struct kbox_syscall_trap_runtime *runtime,

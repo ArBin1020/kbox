@@ -267,6 +267,7 @@ with
 
 - x86_64
 - aarch64
+- riscv64
 
 ## License
 
