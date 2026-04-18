@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -21,6 +23,14 @@ int kbox_boot_kernel(const char *cmdline)
     const char *effective = cmdline;
     char buf[512];
     int ret;
+    sigset_t mask;
+
+    /* Block SIGCHLD before booting LKL so that all kernel threads created
+     * by lkl_start_kernel inherit the blocked mask.
+     */
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &mask, NULL);
 
     if (!cmdline || !*cmdline) {
         effective = "console=null";

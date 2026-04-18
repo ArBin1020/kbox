@@ -492,16 +492,12 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
     if (socketpair_create(sp) < 0)
         return -1;
 
-    /* Block SIGCHLD before fork so the parent cannot lose the signal
-     * in the window between fork and signalfd creation.  Save the
-     * caller's mask so both parent and child can restore it later.
+    /* Save the caller's mask so both parent and child can
+     * restore it later.
      */
     {
-        sigset_t chld_mask;
-        sigemptyset(&chld_mask);
-        sigaddset(&chld_mask, SIGCHLD);
-        if (sigprocmask(SIG_BLOCK, &chld_mask, &old_mask) < 0) {
-            fprintf(stderr, "sigprocmask(SIG_BLOCK): %s\n", strerror(errno));
+        if (sigprocmask(SIG_SETMASK, NULL, &old_mask) < 0) {
+            fprintf(stderr, "sigprocmask(SIG_SETMASK): %s\n", strerror(errno));
             close(sp[0]);
             close(sp[1]);
             return -1;
