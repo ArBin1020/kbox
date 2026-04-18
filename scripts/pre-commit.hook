@@ -184,6 +184,8 @@ build_cppcheck_suppressions() {
         "syntaxError:src/loader-transfer.c"
         "invalidFunctionArg:src/rewrite.c"
         "invalidFunctionArg:tests/unit/test-procmem.c"
+        "invalidFunctionArg:tests/guest/signal-safety-test.c"
+        "nullPointerOutOfMemory:tests/guest/signal-safety-test.c"
         "nullPointerArithmeticOutOfMemory:tests/unit/test-procmem.c"
         "nullPointerOutOfMemory:tests/unit/test-procmem.c"
         "knownConditionTrueFalse"

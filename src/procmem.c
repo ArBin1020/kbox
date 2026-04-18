@@ -3,6 +3,48 @@
 /* Process memory access for seccomp-unotify.
  *
  * Wraps process_vm_readv/writev to read/write tracee memory without ptrace.
+ *
+ * Signal safety contract
+ * ----------------------
+ * Signal-visible globals in this file:
+ *
+ *   fault_armed      (__thread volatile sig_atomic_t)
+ *       Read by fault_handler (SIGSEGV/SIGBUS).  Written only by
+ *       safe_memcpy / kbox_current_read_string on the same thread,
+ *       outside the handler.  sig_atomic_t + volatile guarantees
+ *       atomic visibility.  Thread-local: no cross-thread concern.
+ *
+ *   fault_jmp         (__thread sigjmp_buf)
+ *       Target of siglongjmp in fault_handler.  siglongjmp is
+ *       async-signal-safe per POSIX.  Thread-local.
+ *
+ *   fault_handler_gen (volatile unsigned, __atomic ops)
+ *       Bumped by kbox_procmem_signal_changed() (dispatch thread)
+ *       when the guest calls rt_sigaction(SIGSEGV/SIGBUS).  Read
+ *       by safe_memcpy via __atomic_load_n.  Never accessed from
+ *       a signal handler.
+ *
+ *   saved_guest_segv, saved_guest_bus (static struct sigaction)
+ *       Read by fault_handler to forward non-kbox faults to the
+ *       guest's handler.  Written by install_fault_handler() on
+ *       the dispatch thread.  Safe because the single-threaded
+ *       guest constraint (CLONE_THREAD returns ENOSYS) serializes
+ *       rt_sigaction dispatch and safe_memcpy through the same
+ *       thread.  If multi-threaded guest support is added, these
+ *       must be protected by a lock or made thread-local.
+ *
+ * Functions called from signal handler context:
+ *   fault_handler          -- reads fault_armed, calls siglongjmp or
+ *                             forwards to guest handler.
+ *   restore_default_and_reraise -- sigaction + raise, both POSIX
+ *                                  async-signal-safe.
+ *
+ * The fault_armed window in safe_memcpy / kbox_current_read_string:
+ *   sigsetjmp -> fault_armed=1 -> memory access -> fault_armed=0
+ *   If a SIGSEGV/SIGBUS arrives while fault_armed=1, siglongjmp
+ *   returns to the sigsetjmp site and returns -EFAULT.  If a signal
+ *   arrives while fault_armed=0, it is forwarded to the guest's
+ *   saved handler (or SIG_DFL -> core dump).
  */
 
 #include <errno.h>
@@ -57,6 +99,24 @@ static __thread unsigned
 
 /* Saved guest handlers: when kbox installs its fault handler, the guest's
  * prior handlers are preserved here and forwarded to when fault_armed is 0.
+ *
+ * Race safety (Go runtime SIGSEGV for stack growth):
+ *
+ * When the guest calls rt_sigaction(SIGSEGV, new_handler), kbox's dispatch:
+ *   1. Bumps fault_handler_gen (kbox_procmem_signal_changed).
+ *   2. Returns CONTINUE -- host kernel installs guest's new_handler.
+ *
+ * At this point kbox's fault_handler is no longer installed.  However,
+ * the next safe_memcpy detects the generation mismatch BEFORE arming
+ * fault_armed, and re-installs kbox's handler (saving the guest's
+ * new_handler here).  Between steps 2 and the reinstall, no safe_memcpy
+ * is in progress (fault_armed == 0), so any SIGSEGV in that window goes
+ * directly to the guest's handler -- which is the correct behavior.
+ *
+ * This ordering guarantee depends on the single-threaded guest
+ * constraint (CLONE_THREAD returns ENOSYS).  With multi-threaded
+ * guests, a concurrent safe_memcpy on another thread could see a
+ * stale saved_guest_segv.  These would need to become per-thread.
  */
 static struct sigaction saved_guest_segv;
 static struct sigaction saved_guest_bus;

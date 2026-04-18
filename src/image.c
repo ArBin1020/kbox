@@ -833,6 +833,7 @@ int kbox_run_image(const struct kbox_image_args *args)
     command = args->command ? args->command : "/bin/sh";
     probe_mode = args->syscall_mode;
     rewrite_requested = args->syscall_mode == KBOX_SYSCALL_MODE_REWRITE;
+    setenv("KBOX_SYSCALL_MODE", kbox_syscall_mode_name(args->syscall_mode), 1);
 
     /* AUTO enables rewrite analysis for non-shell commands so the
      * auto_prefers_userspace_fast_path() selection function can see the

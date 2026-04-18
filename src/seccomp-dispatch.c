@@ -7,6 +7,22 @@
  * This is the beating heart of kbox: every file open, read, write, stat, and
  * directory operation the tracee makes gets routed through here.
  *
+ * Single-threaded dispatch contract
+ * ----------------------------------
+ * All notification processing runs on a single thread (supervisor loop in
+ * seccomp mode, SIGSYS handler in trap/rewrite mode). The following state is
+ * protected only by this single-threaded invariant:
+ *
+ *   dispatch_scratch[]     Static I/O buffer (this file).
+ *   kbox_fd_table entries  FD table (fd-table.c).
+ *   Path scratch buffers   Translation/literal caches (path.c).
+ *   shadow_sockets[]       SLIRP socket array (net-slirp.c).
+ *   saved_guest_segv/bus   Fault handler saved actions (procmem.c).
+ *   fault_armed            Thread-local; single-threaded guest means
+ *                          only one thread ever arms it.
+ *
+ * If parallel dispatch or multi-threaded guest support is introduced,
+ * every item above needs locking or per-thread allocation.
  */
 
 #include <errno.h>
@@ -126,6 +142,9 @@ static struct kbox_dispatch emulate_trap_rt_sigprocmask(
     unsigned char set_mask[sizeof(sigset_t)];
     size_t mask_len;
 
+    memset(current, 0, sizeof(current));
+    memset(next, 0, sizeof(next));
+
     if (sigset_size == 0 || sigset_size > sizeof(current))
         return kbox_dispatch_errno(EINVAL);
     mask_len = sigset_size;
@@ -153,8 +172,15 @@ static struct kbox_dispatch emulate_trap_rt_sigprocmask(
     }
 
     if (old_ptr != 0) {
+        /* Strip SIGSYS from the reported mask -- the guest must not
+         * observe kbox's reserved signal in its signal state.
+         */
+        unsigned char visible[sizeof(sigset_t)];
+
+        memcpy(visible, current, sizeof(visible));
+        kbox_syscall_trap_sigset_strip_reserved(visible, sizeof(visible));
         int rc = guest_mem_write(ctx, kbox_syscall_request_pid(req), old_ptr,
-                                 current, mask_len);
+                                 visible, mask_len);
         if (rc < 0)
             return kbox_dispatch_errno(-rc);
     }
@@ -213,14 +239,17 @@ static struct kbox_dispatch emulate_trap_rt_sigpending(
     unsigned char pending[sizeof(sigset_t)];
     int rc;
 
-    (void) ctx;
-
     if (set_ptr == 0)
         return kbox_dispatch_errno(EFAULT);
     if (sigset_size == 0 || sigset_size > sizeof(pending))
         return kbox_dispatch_errno(EINVAL);
     if (kbox_syscall_trap_get_pending(pending, sizeof(pending)) < 0)
         return kbox_dispatch_errno(EIO);
+
+    /* Strip SIGSYS from pending set -- the guest must not observe
+     * kbox's reserved signal as pending.
+     */
+    kbox_syscall_trap_sigset_strip_reserved(pending, sizeof(pending));
 
     rc = guest_mem_write(ctx, kbox_syscall_request_pid(req), set_ptr, pending,
                          sigset_size);
@@ -4405,7 +4434,17 @@ struct kbox_dispatch kbox_dispatch_request(
         return kbox_dispatch_value(0);
     }
 
-    /* Signals. */
+    /* Signals.
+     *
+     * rt_sigaction: only SIGSYS is denied (reserved for trap mode).
+     * All other signals -- including SIGURG (Go async preemption),
+     * SIGUSR1/2, SIGALRM, etc. -- pass through to the host kernel
+     * via CONTINUE.  SIGSEGV/SIGBUS changes bump the fault handler
+     * generation counter so procmem.c reinstalls its handler.
+     *
+     * rt_sigprocmask: in trap/rewrite mode, emulated to keep the
+     * supervisor's SIGSYS unblocked.  In seccomp mode, CONTINUE.
+     */
 
     if (nr == h->rt_sigaction) {
         if (request_uses_trap_signals(req) &&

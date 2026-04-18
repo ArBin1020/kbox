@@ -1,5 +1,42 @@
 /* SPDX-License-Identifier: MIT */
 
+/* Syscall trap runtime: SIGSYS handler installation and dispatch.
+ *
+ * Signal safety contract
+ * ----------------------
+ * Signal-visible globals:
+ *
+ *   active_trap_runtime  (static pointer, atomic load/store)
+ *       Read by trap_sigsys_handler via __atomic_load_n (ACQUIRE).
+ *       Written by install/uninstall via __atomic_store_n (RELEASE).
+ *       Plain pointer load is async-signal-safe.
+ *
+ *   have_fsgsbase        (static int)
+ *       Written once at startup by probe_fsgsbase().  Read in
+ *       read/write_host_fs_base helpers.  One-shot init; never
+ *       modified after the first probe.
+ *
+ * The SIGSYS handler (trap_sigsys_handler) runs on the guest thread.
+ * It must avoid:
+ *   - Heap allocation (guest may hold glibc malloc locks).
+ *     All dispatch buffers are static (dispatch_scratch in
+ *     seccomp-dispatch.c).
+ *   - Stack protector (guest FS base != kbox FS base on x86_64).
+ *     Handler is __attribute__((no_stack_protector)).
+ *   - ASAN instrumentation (ASAN runtime syscalls hit the BPF
+ *     filter from unregistered IPs).  Handler is
+ *     __attribute__((no_sanitize("address"))).
+ *
+ * The handler restores kbox's FS base before calling into C dispatch
+ * code, then restores the guest's FS base before returning.  This
+ * swap is safe because the guest is single-threaded (CLONE_THREAD
+ * returns ENOSYS in trap/rewrite mode).
+ *
+ * If multi-threaded guest support is added, the following must be
+ * revisited: active_trap_runtime (must become per-thread), FS base
+ * swap (must be per-thread), and all static dispatch buffers.
+ */
+
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
@@ -876,6 +913,18 @@ int kbox_syscall_trap_sigset_blocks_reserved(const void *mask, size_t len)
     if (!mask || len <= byte_index)
         return 0;
     return (bytes[byte_index] & (1U << bit_index)) != 0;
+}
+
+void kbox_syscall_trap_sigset_strip_reserved(void *mask, size_t len)
+{
+    unsigned char *bytes = mask;
+    unsigned int signo = (unsigned int) kbox_syscall_trap_reserved_signal();
+    unsigned int bit = signo - 1U;
+    unsigned int byte_index = bit / 8U;
+
+    if (!mask || len <= byte_index)
+        return;
+    bytes[byte_index] &= (unsigned char) ~(1U << (bit % 8U));
 }
 
 uintptr_t kbox_syscall_trap_host_syscall_ip(void)

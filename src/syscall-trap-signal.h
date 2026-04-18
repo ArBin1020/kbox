@@ -13,6 +13,7 @@ struct kbox_syscall_trap_ip_range {
 int kbox_syscall_trap_reserved_signal(void);
 int kbox_syscall_trap_signal_is_reserved(int signum);
 int kbox_syscall_trap_sigset_blocks_reserved(const void *mask, size_t len);
+void kbox_syscall_trap_sigset_strip_reserved(void *mask, size_t len);
 uintptr_t kbox_syscall_trap_host_syscall_ip(void);
 int kbox_syscall_trap_host_syscall_range(
     struct kbox_syscall_trap_ip_range *out);
